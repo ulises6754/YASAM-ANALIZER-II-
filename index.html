@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador de Espectro Acústico</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.1/lucide.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        
+        canvas {
+            background: #1e293b;
+            border-radius: 0.5rem;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.25);
+        }
+
+        .control-panel {
+            background: #1e293b;
+            border: 1px solid #334155;
+        }
+
+        /* Custom Scrollbar for range inputs */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #475569;
+            border-radius: 2px;
+        }
+        
+        .tab-btn.active {
+            background-color: #0ea5e9; /* Sky 500 */
+            color: white;
+            border-color: #0ea5e9;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col p-4 md:p-6 gap-6">
+
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-700 pb-4">
+        <div class="flex items-center gap-3">
+            <i data-lucide="activity" class="text-sky-400 w-8 h-8"></i>
+            <div>
+                <h1 class="text-2xl font-bold text-white">YASAM-ANALIZER II</h1>
+                <p class="text-slate-400 text-sm">Creadores: Samuel Ramos, Yahir Perez</p>
+            </div>
+        </div>
+        
+        <div class="flex gap-3">
+            <button id="toggleBtn" class="flex items-center gap-2 px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold transition-all shadow-lg shadow-sky-900/50 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i data-lucide="play"></i>
+                <span>Iniciar Análisis</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <!-- Controls & Stats Sidebar -->
+        <aside class="lg:col-span-1 flex flex-col gap-6">
+            
+            <!-- Source Selector (New!) -->
+            <div class="control-panel p-5 rounded-xl shadow-lg">
+                <h2 class="text-sky-400 font-bold mb-4 flex items-center gap-2">
+                    <i data-lucide="input" class="w-4 h-4"></i> Fuente de Entrada
+                </h2>
+                <div class="flex gap-2 mb-4">
+                    <button id="useMicBtn" class="tab-btn flex-1 py-2 text-xs font-bold border border-slate-600 rounded transition-colors text-slate-400 hover:bg-slate-800 active">
+                        Micrófono
+                    </button>
+                    <button id="useOscBtn" class="tab-btn flex-1 py-2 text-xs font-bold border border-slate-600 rounded transition-colors text-slate-400 hover:bg-slate-800">
+                        Generador (Demo)
+                    </button>
+                </div>
+                
+                <!-- Oscillator Controls (Hidden by default) -->
+                <div id="oscillatorControls" class="hidden space-y-4 border-t border-slate-700 pt-4 animate-fade-in">
+                    <div>
+                        <label class="block text-sm text-slate-300 mb-2">Tipo de Onda</label>
+                        <select id="oscType" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm">
+                            <option value="sine">Senoidal (Pura)</option>
+                            <option value="square">Cuadrada (Armónicos)</option>
+                            <option value="sawtooth">Diente de Sierra</option>
+                            <option value="triangle">Triangular</option>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="block text-sm text-slate-300">Frecuencia (Hz)</label>
+                            <span id="oscFreqVal" class="text-xs text-sky-400">440 Hz</span>
+                        </div>
+                        <input type="range" id="oscFreq" min="20" max="2000" step="1" value="440" class="w-full">
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="block text-sm text-slate-300">Volumen</label>
+                            <span id="oscVolVal" class="text-xs text-sky-400">0.5</span>
+                        </div>
+                        <input type="range" id="oscVol" min="0" max="1" step="0.01" value="0.5" class="w-full">
+                    </div>
+                </div>
+                
+                <p id="micStatusMsg" class="text-xs text-slate-500 mt-2">
+                    <span class="text-amber-400">Nota:</span> El micrófono requiere HTTPS o Localhost. Si falla, usa el Generador.
+                </p>
+            </div>
+
+            <!-- Real-time Metrics -->
+            <div class="control-panel p-5 rounded-xl shadow-lg">
+                <h2 class="text-sky-400 font-bold mb-4 flex items-center gap-2">
+                    <i data-lucide="bar-chart-2" class="w-4 h-4"></i> Métricas
+                </h2>
+                <div class="space-y-4">
+                    <div class="bg-slate-900 p-3 rounded-lg border border-slate-700">
+                        <span class="text-xs text-slate-500 uppercase tracking-wider">Frecuencia Pico</span>
+                        <div class="text-2xl font-bold text-green-400 mt-1" id="peakFreq">0 Hz</div>
+                    </div>
+                    <div class="bg-slate-900 p-3 rounded-lg border border-slate-700">
+                        <span class="text-xs text-slate-500 uppercase tracking-wider">Nivel Relativo</span>
+                        <div class="text-2xl font-bold text-yellow-400 mt-1" id="peakDb">- Inf dB</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings -->
+            <div class="control-panel p-5 rounded-xl shadow-lg flex-1">
+                <h2 class="text-sky-400 font-bold mb-4 flex items-center gap-2">
+                    <i data-lucide="sliders" class="w-4 h-4"></i> Configuración FFT
+                </h2>
+                
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm text-slate-300 mb-2">Tamaño FFT</label>
+                        <select id="fftSize" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:outline-none focus:border-sky-500">
+                            <option value="512">512</option>
+                            <option value="1024">1024</option>
+                            <option value="2048" selected>2048</option>
+                            <option value="4096">4096</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="block text-sm text-slate-300">Suavizado</label>
+                            <span id="smoothingVal" class="text-xs text-sky-400">0.8</span>
+                        </div>
+                        <input type="range" id="smoothing" min="0" max="0.95" step="0.05" value="0.8" class="w-full">
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="block text-sm text-slate-300">Rango Min (dB)</label>
+                            <span id="minDecibelsVal" class="text-xs text-sky-400">-90</span>
+                        </div>
+                        <input type="range" id="minDecibels" min="-100" max="-30" step="1" value="-90" class="w-full">
+                    </div>
+                    
+                    <div class="pt-4 border-t border-slate-700 flex items-center gap-2">
+                        <input type="checkbox" id="freezeBtn" class="w-4 h-4 rounded border-slate-600 text-sky-600 bg-slate-800">
+                        <label for="freezeBtn" class="text-sm text-slate-300">Congelar Gráficos</label>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Visualization Area -->
+        <div class="lg:col-span-3 flex flex-col gap-6">
+            <!-- Frequency Spectrum -->
+            <div class="relative flex-1 min-h-[300px] bg-slate-900 rounded-xl border border-slate-700 overflow-hidden group">
+                <div class="absolute top-3 left-4 text-xs font-bold text-slate-500 uppercase z-10 bg-slate-900/80 px-2 py-1 rounded">
+                    Espectro de Frecuencia (FFT)
+                </div>
+                <canvas id="spectrumCanvas" class="w-full h-full block"></canvas>
+            </div>
+
+            <!-- Waveform (Time Domain) -->
+            <div class="relative h-[200px] bg-slate-900 rounded-xl border border-slate-700 overflow-hidden">
+                <div class="absolute top-3 left-4 text-xs font-bold text-slate-500 uppercase z-10 bg-slate-900/80 px-2 py-1 rounded">
+                    Forma de Onda (Time Domain)
+                </div>
+                <canvas id="waveCanvas" class="w-full h-full block"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <footer class="text-center text-slate-600 text-xs py-2">
+        Proyecto de Acústica y Control de Ruido II - Samuel Ramos & Yahir Perez
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Icon Initialization ---
+            try { if (typeof lucide !== 'undefined') lucide.createIcons(); } catch (e) { console.warn("Iconos no cargados"); }
+
+            // --- DOM Elements ---
+            const toggleBtn = document.getElementById('toggleBtn');
+            
+            // Mode Selectors
+            const useMicBtn = document.getElementById('useMicBtn');
+            const useOscBtn = document.getElementById('useOscBtn');
+            const oscillatorControls = document.getElementById('oscillatorControls');
+            const micStatusMsg = document.getElementById('micStatusMsg');
+
+            // Controls
+            const fftSelect = document.getElementById('fftSize');
+            const smoothingRange = document.getElementById('smoothing');
+            const smoothingVal = document.getElementById('smoothingVal');
+            const minDbRange = document.getElementById('minDecibels');
+            const minDbVal = document.getElementById('minDecibelsVal');
+            const freezeCheck = document.getElementById('freezeBtn');
+            
+            // Stats
+            const peakFreqDisp = document.getElementById('peakFreq');
+            const peakDbDisp = document.getElementById('peakDb');
+
+            // Osc Controls
+            const oscTypeSelect = document.getElementById('oscType');
+            const oscFreqRange = document.getElementById('oscFreq');
+            const oscFreqVal = document.getElementById('oscFreqVal');
+            const oscVolRange = document.getElementById('oscVol');
+            const oscVolVal = document.getElementById('oscVolVal');
+            
+            // Canvas
+            const spectrumCanvas = document.getElementById('spectrumCanvas');
+            const waveCanvas = document.getElementById('waveCanvas');
+            let ctxSpectrum, ctxWave;
+
+            if (spectrumCanvas && waveCanvas) {
+                ctxSpectrum = spectrumCanvas.getContext('2d');
+                ctxWave = waveCanvas.getContext('2d');
+                resizeCanvases();
+            }
+
+            // --- Audio State ---
+            let audioContext;
+            let analyser;
+            let sourceNode; // Can be Mic or Oscillator
+            let gainNode;   // Volume for oscillator
+            let isRunning = false;
+            let animationId;
+            let dataArray, timeArray;
+            let inputMode = 'mic'; // 'mic' or 'osc'
+
+            // --- Event Listeners: Input Mode ---
+            useMicBtn.addEventListener('click', () => setInputMode('mic'));
+            useOscBtn.addEventListener('click', () => setInputMode('osc'));
+
+            function setInputMode(mode) {
+                if (isRunning) stopAudio(); // Stop if changing modes
+                
+                inputMode = mode;
+                
+                if (mode === 'mic') {
+                    useMicBtn.classList.add('active');
+                    useOscBtn.classList.remove('active');
+                    oscillatorControls.classList.add('hidden');
+                    micStatusMsg.classList.remove('hidden');
+                } else {
+                    useOscBtn.classList.add('active');
+                    useMicBtn.classList.remove('active');
+                    oscillatorControls.classList.remove('hidden');
+                    micStatusMsg.classList.add('hidden');
+                }
+            }
+
+            // --- Canvas Resizing ---
+            function resizeCanvases() {
+                if (!spectrumCanvas || !waveCanvas) return;
+                spectrumCanvas.width = spectrumCanvas.clientWidth;
+                spectrumCanvas.height = spectrumCanvas.clientHeight;
+                waveCanvas.width = waveCanvas.clientWidth;
+                waveCanvas.height = waveCanvas.clientHeight;
+            }
+            window.addEventListener('resize', resizeCanvases);
+
+            // --- Audio Logic ---
+            async function startAudio() {
+                const btnSpan = toggleBtn.querySelector('span');
+                const btnIcon = toggleBtn.querySelector('i');
+                if (btnSpan) btnSpan.innerText = "Iniciando...";
+                toggleBtn.disabled = true;
+
+                try {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    if (!AudioContextClass) throw new Error("Web Audio API no soportada.");
+                    
+                    audioContext = new AudioContextClass();
+                    
+                    // Resume if suspended (browser autoplay policy)
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+
+                    analyser = audioContext.createAnalyser();
+                    // Apply Settings
+                    analyser.fftSize = parseInt(fftSelect.value);
+                    analyser.smoothingTimeConstant = parseFloat(smoothingRange.value);
+                    analyser.minDecibels = parseInt(minDbRange.value);
+                    analyser.maxDecibels = -10;
+
+                    if (inputMode === 'mic') {
+                        // --- Microphone Mode ---
+                        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                            throw new Error("API de Micrófono no disponible (posiblemente bloqueada por falta de HTTPS).");
+                        }
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        sourceNode = audioContext.createMediaStreamSource(stream);
+                        sourceNode.connect(analyser);
+                        // Do NOT connect mic to destination (feedback loop)
+                    } else {
+                        // --- Oscillator Mode (Generador de Señal) ---
+                        sourceNode = audioContext.createOscillator();
+                        sourceNode.type = oscTypeSelect.value;
+                        sourceNode.frequency.value = parseInt(oscFreqRange.value);
+
+                        gainNode = audioContext.createGain();
+                        gainNode.gain.value = parseFloat(oscVolRange.value);
+
+                        sourceNode.connect(gainNode);
+                        gainNode.connect(analyser);
+                        analyser.connect(audioContext.destination); // Connect to speakers so we can hear it
+                        
+                        sourceNode.start();
+                    }
+
+                    // Buffers
+                    const bufferLength = analyser.frequencyBinCount;
+                    dataArray = new Uint8Array(bufferLength);
+                    timeArray = new Uint8Array(bufferLength);
+
+                    isRunning = true;
+                    updateUIState(true);
+                    animate();
+
+                } catch (err) {
+                    console.error("Error startAudio:", err);
+                    
+                    if (inputMode === 'mic') {
+                        // Smart fallback suggestion
+                        if(confirm(`⚠️ Error de Micrófono: ${err.message}\n\n¿Quieres cambiar al modo "Generador de Señal" (Demo) para probar el analizador sin micrófono?`)) {
+                            setInputMode('osc');
+                            setTimeout(() => startAudio(), 500); // Retry automatically in osc mode
+                        }
+                    } else {
+                        alert(`Error: ${err.message}`);
+                    }
+                    
+                    cleanupAudio();
+                    updateUIState(false);
+                } finally {
+                    toggleBtn.disabled = false;
+                }
+            }
+
+            function stopAudio() {
+                cleanupAudio();
+                updateUIState(false);
+                
+                // Clear Canvases
+                if (ctxSpectrum) ctxSpectrum.clearRect(0, 0, spectrumCanvas.width, spectrumCanvas.height);
+                if (ctxWave) ctxWave.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
+                peakFreqDisp.innerText = "0 Hz";
+                peakDbDisp.innerText = "- Inf dB";
+            }
+
+            function cleanupAudio() {
+                if (sourceNode) {
+                    try { sourceNode.stop(); } catch(e) {}
+                    try { sourceNode.disconnect(); } catch(e) {}
+                }
+                if (gainNode) gainNode.disconnect();
+                if (analyser) analyser.disconnect();
+                if (audioContext) audioContext.close();
+                
+                audioContext = null;
+                sourceNode = null;
+                gainNode = null;
+                analyser = null;
+                if (animationId) cancelAnimationFrame(animationId);
+                isRunning = false;
+            }
+
+            function updateUIState(running) {
+                const btnSpan = toggleBtn.querySelector('span');
+                const btnIcon = toggleBtn.querySelector('i');
+                
+                if (running) {
+                    toggleBtn.classList.remove('bg-sky-600', 'hover:bg-sky-500');
+                    toggleBtn.classList.add('bg-rose-600', 'hover:bg-rose-500');
+                    if(btnSpan) btnSpan.innerText = "Detener";
+                    if(btnIcon) {
+                         // Update icon logic if needed
+                         btnIcon.setAttribute('data-lucide', 'square');
+                    }
+                } else {
+                    toggleBtn.classList.add('bg-sky-600', 'hover:bg-sky-500');
+                    toggleBtn.classList.remove('bg-rose-600', 'hover:bg-rose-500');
+                    if(btnSpan) btnSpan.innerText = "Iniciar Análisis";
+                    if(btnIcon) {
+                         btnIcon.setAttribute('data-lucide', 'play');
+                    }
+                }
+                try { lucide.createIcons(); } catch(e) {}
+            }
+
+            // --- Visualization Loop ---
+            function animate() {
+                if (!isRunning) return;
+                animationId = requestAnimationFrame(animate);
+                if (freezeCheck.checked) return;
+
+                analyser.getByteFrequencyData(dataArray);
+                analyser.getByteTimeDomainData(timeArray);
+
+                drawSpectrum();
+                drawWaveform();
+                calculateMetrics();
+            }
+
+            // --- Calculations & Drawing ---
+            function calculateMetrics() {
+                let maxVal = -1;
+                let maxIndex = -1;
+                
+                // Find Peak frequency bin
+                for (let i = 0; i < dataArray.length; i++) {
+                    if (dataArray[i] > maxVal) {
+                        maxVal = dataArray[i];
+                        maxIndex = i;
+                    }
+                }
+
+                const nyquist = audioContext.sampleRate / 2;
+                const binWidth = nyquist / dataArray.length;
+                const freq = maxIndex * binWidth;
+
+                // Threshold to show data
+                if (maxVal > 5) { 
+                    peakFreqDisp.innerText = `${freq.toFixed(1)} Hz`;
+                    
+                    const range = analyser.maxDecibels - analyser.minDecibels;
+                    const db = (maxVal / 255) * range + analyser.minDecibels;
+                    peakDbDisp.innerText = `${db.toFixed(1)} dB`;
+                }
+            }
+
+            function drawSpectrum() {
+                const w = spectrumCanvas.width;
+                const h = spectrumCanvas.height;
+                const len = analyser.frequencyBinCount;
+                
+                ctxSpectrum.fillStyle = '#0f172a';
+                ctxSpectrum.fillRect(0, 0, w, h);
+
+                // Grid lines
+                ctxSpectrum.strokeStyle = '#1e293b';
+                ctxSpectrum.lineWidth = 1;
+                ctxSpectrum.beginPath();
+                for(let j=1; j<4; j++) {
+                     const y = h * (j/4);
+                     ctxSpectrum.moveTo(0, y);
+                     ctxSpectrum.lineTo(w, y);
+                }
+                ctxSpectrum.stroke();
+
+                // Bars
+                const barWidth = (w / len) * 2.5; 
+                let x = 0;
+
+                for(let i = 0; i < len; i++) {
+                    const barHeight = (dataArray[i] / 255) * h;
+                    
+                    // Gradient color based on frequency
+                    const hue = (i / len) * 360; 
+                    ctxSpectrum.fillStyle = `hsl(${200 + (i/len)*100}, 80%, 50%)`; // Blue to Purple
+                    
+                    ctxSpectrum.fillRect(x, h - barHeight, barWidth, barHeight);
+                    x += barWidth + 1;
+                    if(x > w) break;
+                }
+            }
+
+            function drawWaveform() {
+                const w = waveCanvas.width;
+                const h = waveCanvas.height;
+                const len = analyser.frequencyBinCount;
+
+                ctxWave.fillStyle = '#0f172a';
+                ctxWave.fillRect(0, 0, w, h);
+
+                ctxWave.lineWidth = 2;
+                ctxWave.strokeStyle = '#38bdf8';
+                ctxWave.beginPath();
+
+                const sliceWidth = w * 1.0 / len;
+                let x = 0;
+
+                for(let i = 0; i < len; i++) {
+                    const v = timeArray[i] / 128.0;
+                    const y = v * h / 2;
+
+                    if(i === 0) ctxWave.moveTo(x, y);
+                    else ctxWave.lineTo(x, y);
+
+                    x += sliceWidth;
+                }
+                ctxWave.stroke();
+            }
+
+            // --- Controls Event Listeners ---
+            toggleBtn.addEventListener('click', () => {
+                if (isRunning) stopAudio();
+                else startAudio();
+            });
+
+            // FFT Controls
+            fftSelect.addEventListener('change', () => {
+                if (analyser) {
+                    analyser.fftSize = parseInt(fftSelect.value);
+                    const len = analyser.frequencyBinCount;
+                    dataArray = new Uint8Array(len);
+                    timeArray = new Uint8Array(len);
+                }
+            });
+            smoothingRange.addEventListener('input', (e) => {
+                smoothingVal.innerText = e.target.value;
+                if (analyser) analyser.smoothingTimeConstant = parseFloat(e.target.value);
+            });
+            minDbRange.addEventListener('input', (e) => {
+                minDbVal.innerText = e.target.value;
+                if (analyser) analyser.minDecibels = parseInt(e.target.value);
+            });
+
+            // Oscillator Controls (Live Update)
+            oscTypeSelect.addEventListener('change', () => {
+                if(sourceNode && inputMode === 'osc') sourceNode.type = oscTypeSelect.value;
+            });
+            oscFreqRange.addEventListener('input', (e) => {
+                oscFreqVal.innerText = e.target.value + " Hz";
+                if(sourceNode && inputMode === 'osc') sourceNode.frequency.value = parseInt(e.target.value);
+            });
+            oscVolRange.addEventListener('input', (e) => {
+                oscVolVal.innerText = e.target.value;
+                if(gainNode) gainNode.gain.value = parseFloat(e.target.value);
+            });
+        });
+    </script>
+</body>
+</html>
